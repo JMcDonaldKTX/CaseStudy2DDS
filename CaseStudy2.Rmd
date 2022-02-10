@@ -1,0 +1,61 @@
+---
+title: "CaseStudy2"
+author: "Jason Mcdonald"
+date: "2/10/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(kableExtra)
+```
+
+# Jason McDonald's Frito Lay Attrition Case Study
+
+## Executive Summary
+With current inflation data showing that inflation is outpacing wage growth drastically, employees are feeling an impact to their financial bottom line at home.  No longer can employees accept idle wage growth as such is accepting wage reductions when inflation is taken into account.
+
+As a business, you must reward your employees financially with incentives that both satisfy their financial desires and address others they may have.
+
+The question is, do we know what desires cause an employee to stay in a role?  Is it financial alone?  Is there some other factor which can cause an otherwise happy employee to leave?  Does this change over time, such as when inflation is growing at the rate it is now, in 2021 and 2022?
+
+I've set out to provide you with insights using the data set you have provided, of 870 employees.
+
+
+### Import the data
+I was provided with 3 files containing employee data, 2 in Comma Separated Value format and 1 in Excel Workbook format which I then converted to CSV.  The first file contained data on 870 employees with a number of data points about each.  The second contained similar data points but no attrition data.  Finally, the third contained similar data points but no salary data.
+
+Below, I will read in the data and begin to explore what columns and types of data exists in each.
+```{r, Import Data}
+trainData <- read.csv('CaseStudy2-data.csv')
+attritionData <- read.csv('CaseStudy2CompSetNoAttrition.csv')
+salaryData <- read.csv('CaseStudy2CompSetNoSalary.csv')
+```
+### Training Data Set
+```{r, Training Variables}
+
+#Display the columns in each data set in a table format
+as.data.frame(lapply(trainData, class)) %>% t() %>% kable(bootstrap_options = "striped", full_width = F, position = "left") %>% kable_styling()
+```
+### No Attrition Data Set
+```{r, No Attrition Variables}
+
+#Display the columns in each data set in a table format
+as.data.frame(lapply(attritionData, class)) %>% t() %>% kable() %>% kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+### No Salary Data Set
+```{r, No Salary Variables}
+
+#Display the columns in each data set in a table format
+as.data.frame(lapply(salaryData, class)) %>% t() %>% kable() %>% kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+### Cleaning the data sets
+There exists some columns which do not appear to contain data that will be useful going forward.  This could be due to the column not containing data that can be grouped into identifiable levels, such as ID, StandardHours, Employee Count, and EmployeeNumber.  There were also 2 columns, Age and Commute Distance, that would be better grouped into Ordinal Variables rather than the continuous variables in which they currently exist.  That work is done here to remove from all data sets.
+```{r, Clean Data}
+removeVariables <- c("ID", "StandardHours", "EmployeeCount", "EmployeeNumber")
+trainData <- trainData[,!(names(trainData) %in% removeVariables)] 
+attritionData <- attritionData[,!(names(attritionData) %in% removeVariables)]
+salaryData <- salaryData[,!(names(salaryData) %in% removeVariables)]
+```
+
+
