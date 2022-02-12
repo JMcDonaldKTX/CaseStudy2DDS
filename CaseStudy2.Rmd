@@ -14,6 +14,10 @@ library(caret)
 library(doParallel) #used code sample from https://topepo.github.io/caret/parallel-processing.html
 library(yardstick) #recommended during research at https://rpubs.com/jkylearmstrong/knn_w_caret
 library(e1071)
+library(ggplot2)
+library(randomForest)
+library(tidyverse)
+library(dplyr)
 ```
 
 # Jason McDonald's Frito Lay Attrition Case Study
@@ -65,18 +69,23 @@ as.data.frame(lapply(attritionData, class)) %>% t() %>% kable() %>% kable_stylin
 as.data.frame(lapply(salaryData, class)) %>% t() %>% kable() %>% kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
 ```
 ### Cleaning the data sets
-There exists some columns which do not appear to contain data that will be useful going forward.  This could be due to the column not containing data that can be grouped into identifiable levels, such as ID, StandardHours, Employee Count, Over18, and EmployeeNumber.  
+There exists some columns which do not appear to contain data that will be useful going forward.  This could be due to the column not containing data that can be grouped into identifiable levels, such as ID, StandardHours, Employee Count, Over18, and EmployeeNumber.  There are also a number of columns that appear to be pay rates, but do not appear to make sense or show consistency in relation to other columns that show, presumedly, like data.  These are HourlyRate, DailyRate, and MonthlyRate.  These rate data columns do not currently exist in the Salary Data set provided.
+
 That work to remove them is done here.  
 ```{r, Clean Data}
 
 #remove unneeded columns
-removeVariables <- c("ID", "StandardHours", "EmployeeCount", "Over18", "EmployeeNumber")
+removeVariables <- c("ID", "StandardHours", "EmployeeCount", "Over18", "EmployeeNumber", "HourlyRate", "DailyRate", "MonthlyRate")
 trainData <- trainData[,!(names(trainData) %in% removeVariables)] 
 attritionData <- attritionData[,!(names(attritionData) %in% removeVariables)]
 salaryData <- salaryData[,!(names(salaryData) %in% removeVariables)]
 ```
 ### Cleaning the data sets - Parts 2
-In addition to the columns that we won't need, there exist columns which need some transformation.  Notably Age and DistanceFromHome.  These are currently continious variables but will do better as ordinal variables using groups.  We define those groups below.
+In addition to the columns that we won't need, there exist columns which need some transformation.  Notably Age and DistanceFromHome.  These are currently continuous variables but will do better as ordinal variables using groups.  Additionally, I'll partition MonthlyIncome into categorical groups defined as AnnualIncome with breaks from < 40k (3333.33), 40K (3333.33) >= 70k (5833.33), 70k (5833.33) >= 100K (8333.33), and > 100k (8333.33)
+
+We define those groups below.
+
+After that, I will convert categorical variables to factors for use in models later.
 ```{r, Clean Data 2}
 #Age
 trainData$AgeGroup <- with(trainData, ifelse(Age < 21, "18-20", ifelse(Age < 31, "21-30", ifelse(Age < 41, "31-40", ifelse(Age < 51, "41-50", ifelse(Age<61, "51-60", "> 60"))))))
@@ -86,7 +95,11 @@ salaryData$AgeGroup <- with(salaryData, ifelse(Age < 21, "18-20", ifelse(Age < 3
 trainData$WorkDistance <- with(trainData, ifelse(DistanceFromHome < 5, "<5 Miles", ifelse(DistanceFromHome < 11, "5-10", ifelse(DistanceFromHome < 16, "11-15", ifelse(DistanceFromHome < 21, "16-20", ifelse(DistanceFromHome<26, "21-25", "> 25"))))))
 attritionData$WorkDistance <- with(attritionData, ifelse(DistanceFromHome < 5, "<5 Miles", ifelse(DistanceFromHome < 11, "5-10", ifelse(DistanceFromHome < 16, "11-15", ifelse(DistanceFromHome < 21, "16-20", ifelse(DistanceFromHome<26, "21-25", "> 25"))))))
 salaryData$WorkDistance <- with(salaryData, ifelse(DistanceFromHome < 5, "<5 Miles", ifelse(DistanceFromHome < 11, "5-10", ifelse(DistanceFromHome < 16, "11-15", ifelse(DistanceFromHome < 21, "16-20", ifelse(DistanceFromHome<26, "21-25", "> 25"))))))
-
+#trainData$AnnualIncome <- with(trainData, ifelse(MonthlyIncome < 3333.33, "<40k", ifelse(MonthlyIncome < 5833.33, "40K-70K", ifelse(MonthlyIncome < 8333.33, "70k-100k", ">100k"))))
+attritionData$AnnualIncome <- with(attritionData, ifelse(MonthlyIncome < 3333.33, "<40k", ifelse(MonthlyIncome < 5833.33, "40K-70K", ifelse(MonthlyIncome < 8333.33, "70k-100k", ">100k"))))
+head(trainData)
+#trainData[, c(2,3,4,7,9,12,14,17,26,27,28)] <- lapply(trainData[, c(2,3,4,7,9,12,14,17,26,27,28)], factor)
+trainData <- trainData %>% mutate(across(where(is.character), as.factor))
 ```
 ### Review what we've done so far
 ```{r, Review}
@@ -100,14 +113,6 @@ corrData <- cor(trainData[,sapply(trainData, is.numeric)])
 corrplot(corrData, type="upper", order="hclust",
          col=brewer.pal(n=8, name="RdYlBu"))
 ```
-### Handling Attrition as a data point
-To be able to use attrition as a dat point, I will need it to be represented by numeric 1 or 0 for Yes or No. I will address that now.
-```{r, Attrition to Numeric}
-#head(trainData)
-trainData$Attrition <- ifelse(trainData$Attrition=="Yes", 1, 0)
-salaryData$Attrition <- ifelse(salaryData$Attrition=="Yes", 1, 0)
-#head(trainData)
-```
 ### Exploring those who left and those who didn't
 I've seen the correlation data but what can I tell by looking at the mean values by whether or not an employee left Frito Lay?
 ```{r, Visualize the Data, warning=FALSE}
@@ -120,6 +125,7 @@ I'd like to know how many employees exist in each age group among the training d
 ```{r Age Groups}
 table(trainData$AgeGroup) %>% kable() %>% kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
 ```
+
 ### Prepare to make predictions by removing highly correlated data points
 Looking back to the correlation data, there are some points which feature high correlation and likely contribute to the data in the same way.  Some of these aren't surprising.  Take Performance Rating and Percent Salary Hike.  It seems logical to expect those with higher performance rating to earn the highest salary increases.  Also Total Working Years and Job Level.  You expect someone who has worked for a number of years to have a higher job role.  
 
@@ -138,19 +144,117 @@ splitPercentage <- createDataPartition(y= trainData$Attrition, p=.75, list = FAL
 trainSet <- trainData[splitPercentage, ]
 testSet <- trainData[-splitPercentage, ]
 ```
+
 ## Classification Prediction - Attrition
 
-### Begin with a Naive Bayes Model to predict classification
-I start out trying to predict the attrition data with a Naive BAyes Model.
-```{r, Naive Bayes Attrition Prediction}
-nbModel <- naiveBayes(Attrition ~ ., data=trainSet)
+### Begin with a Naive Bayes Model to predict Attrition
+I start out trying to predict the attrition data with a Naive Bayes Model.
 
-#predict with test
-attritionPrediction <- predict(nbModel, testSet)
-nbMatrix <- table(attritionPrediction, testSet$Attrition)
-confusionMatrix(nbMatrix)
-plot(nbMatrix)
+### Helper Function to draw a confusion matrix
+```{r, Draw Confusion Matrix Function}
+#using example from https://stackoverflow.com/questions/23891140/r-how-to-visualize-confusion-matrix-using-the-caret-package/42940553
+
+draw_confusion_matrix <- function(cm) {
+
+  total <- sum(cm$table)
+  res <- as.numeric(cm$table)
+
+  # Generate color gradients. Palettes come from RColorBrewer.
+  yellowPalette <- c("#FBBD16","#FFB955","#FFBA85","#FFC1B2")
+  redPalette <- c("#CC1525","#FFBDE9","#FC85B2","#C14F7D")
+  getColor <- function (yellowOrRed = "yellow", amount = 0) {
+    if (amount == 0)
+      return("#FFFFFF")
+    palette <- yellowPalette
+    if (yellowOrRed == "red")
+      palette <- redPalette
+    colorRampPalette(palette)(100)[10 + ceiling(90 * amount / total)]
+  }
+
+  # set the basic layout
+  layout(matrix(c(1,1,2)))
+  par(mar=c(2,2,2,2))
+  plot(c(100, 345), c(300, 450), type = "n", xlab="", ylab="", xaxt='n', yaxt='n')
+  title('CONFUSION MATRIX', cex.main=2)
+
+  # create the matrix 
+  classes = colnames(cm$table)
+  rect(150, 430, 240, 370, col=getColor("yellow", res[1]))
+  text(195, 435, classes[1], cex=1.2)
+  rect(250, 430, 340, 370, col=getColor("red", res[3]))
+  text(295, 435, classes[2], cex=1.2)
+  text(125, 370, 'Predicted', cex=1.3, srt=90, font=2)
+  text(245, 450, 'Actual', cex=1.3, font=2)
+  rect(150, 305, 240, 365, col=getColor("red", res[2]))
+  rect(250, 305, 340, 365, col=getColor("yellow", res[4]))
+  text(140, 400, classes[1], cex=1.2, srt=90)
+  text(140, 335, classes[2], cex=1.2, srt=90)
+
+  # add in the cm results
+  text(195, 400, res[1], cex=1.6, font=2, col='white')
+  text(195, 335, res[2], cex=1.6, font=2, col='white')
+  text(295, 400, res[3], cex=1.6, font=2, col='white')
+  text(295, 335, res[4], cex=1.6, font=2, col='white')
+
+  # add in the specifics 
+  plot(c(100, 0), c(100, 0), type = "n", xlab="", ylab="", main = "DETAILS", xaxt='n', yaxt='n')
+  text(10, 85, names(cm$byClass[1]), cex=1.2, font=2)
+  text(10, 70, round(as.numeric(cm$byClass[1]), 3), cex=1.2)
+  text(30, 85, names(cm$byClass[2]), cex=1.2, font=2)
+  text(30, 70, round(as.numeric(cm$byClass[2]), 3), cex=1.2)
+  text(50, 85, names(cm$byClass[5]), cex=1.2, font=2)
+  text(50, 70, round(as.numeric(cm$byClass[5]), 3), cex=1.2)
+  text(70, 85, names(cm$byClass[6]), cex=1.2, font=2)
+  text(70, 70, round(as.numeric(cm$byClass[6]), 3), cex=1.2)
+  text(90, 85, names(cm$byClass[7]), cex=1.2, font=2)
+  text(90, 70, round(as.numeric(cm$byClass[7]), 3), cex=1.2)
+
+  # add in the accuracy information 
+  text(30, 35, names(cm$overall[1]), cex=1.5, font=2)
+  text(30, 20, round(as.numeric(cm$overall[1]), 3), cex=1.4)
+  text(70, 35, names(cm$overall[2]), cex=1.5, font=2)
+  text(70, 20, round(as.numeric(cm$overall[2]), 3), cex=1.4)
+}
 ```
 
 
+```{r, Naive Bayes Attrition Prediction}
+#set.seed(1234)
+nbModel <- naiveBayes(Attrition ~ ., data=trainSet)
+
+#predict with test
+testSet$attritionPrediction <- predict(nbModel, testSet)
+nbMatrix <- table(data = testSet$attritionPrediction, reference = testSet$Attrition)
+#nbMatrix
+cm <- confusionMatrix(nbMatrix)
+#cm
+
+
+draw_confusion_matrix(cm)
+```
+
+### Analyze results of Naive Bayes Model
+You have asked for a 60/60 Sensitivity/Specificity model.  The Naive Bayes model returned a sensitivity of 83 % and a specificity of 45.7 %, which does not meet the requested levels.  This tells us that the Naive Bayes model is doing an ok job predicting when a person will stay with the employer but not that great at predicting when a person will leave employment.
+
+I will proceed to see if I can do better and meet the goals of a 60/60 model as requested.
+
+### Random Forest Model
+I'll try using a random forest model to improve on the ability to predict attrition of employees.
+
+
+```{r, Random Forest Model}
+set.seed(1234)
+rfModel <- train(Attrition~., data=trainSet, method="rf", trControl=trainControl(method="cv", number=5), importance=TRUE)
+
+#predict with test
+testSet$rfPrediction <- predict(rfModel, testSet)
+rfMatrix <- table(reference = testSet$Attrition, data = testSet$rfPrediction)
+#head(rfPrediction)
+#rfMatrix
+cm <- confusionMatrix(rfMatrix)
+#cm
+draw_confusion_matrix(cm)
+
+```
+### Analyze results of Naive Bayes Model
 
