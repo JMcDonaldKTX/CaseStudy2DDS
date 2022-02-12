@@ -11,13 +11,15 @@ library(kableExtra)
 library(corrplot)
 library(RColorBrewer)
 library(caret)
-library(doParallel) #used code sample from https://topepo.github.io/caret/parallel-processing.html
-library(yardstick) #recommended during research at https://rpubs.com/jkylearmstrong/knn_w_caret
+#library(doParallel) #used code sample from https://topepo.github.io/caret/parallel-processing.html
+#library(yardstick) #recommended during research at https://rpubs.com/jkylearmstrong/knn_w_caret
 library(e1071)
 library(ggplot2)
 library(randomForest)
 library(tidyverse)
 library(dplyr)
+library(regclass)
+library(Cubist)
 ```
 
 # Jason McDonald's Frito Lay Attrition Case Study
@@ -42,6 +44,7 @@ attritionData <- read.csv('CaseStudy2CompSetNoAttrition.csv')
 salaryData <- read.csv('CaseStudy2CompSetNoSalary.csv')
 head(trainData)
 ```
+
 ### Look for missing data
 I need to begin with a check to see if any data is missing and decide how to address that if so.
 ```{r}
@@ -50,24 +53,28 @@ which(is.na(attritionData))
 which(is.na(salaryData))
 ```
 It looks like nothing is missing from the dataset, so I'll proceed to determine what I've been given and how I will need to clean the data to make it more suitable for predictive insights.
+
 ### Training Data Set
 ```{r, Training Variables}
 
 #Display the columns in each data set in a table format
 as.data.frame(lapply(trainData, class)) %>% t() %>% kable(bootstrap_options = "striped", full_width = F, position = "left") %>% kable_styling()
 ```
+
 ### No Attrition Data Set
 ```{r, No Attrition Variables}
 
 #Display the columns in each data set in a table format
 as.data.frame(lapply(attritionData, class)) %>% t() %>% kable() %>% kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
 ```
+
 ### No Salary Data Set
 ```{r, No Salary Variables}
 
 #Display the columns in each data set in a table format
 as.data.frame(lapply(salaryData, class)) %>% t() %>% kable() %>% kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
 ```
+
 ### Cleaning the data sets
 There exists some columns which do not appear to contain data that will be useful going forward.  This could be due to the column not containing data that can be grouped into identifiable levels, such as ID, StandardHours, Employee Count, Over18, and EmployeeNumber.  There are also a number of columns that appear to be pay rates, but do not appear to make sense or show consistency in relation to other columns that show, presumedly, like data.  These are HourlyRate, DailyRate, and MonthlyRate.  These rate data columns do not currently exist in the Salary Data set provided.
 
@@ -77,9 +84,12 @@ That work to remove them is done here.
 #remove unneeded columns
 removeVariables <- c("ID", "StandardHours", "EmployeeCount", "Over18", "EmployeeNumber", "HourlyRate", "DailyRate", "MonthlyRate")
 trainData <- trainData[,!(names(trainData) %in% removeVariables)] 
+#Don't remove ID from the two provided data sets
+removeVariables <- c("StandardHours", "EmployeeCount", "Over18", "EmployeeNumber", "HourlyRate", "DailyRate", "MonthlyRate")
 attritionData <- attritionData[,!(names(attritionData) %in% removeVariables)]
 salaryData <- salaryData[,!(names(salaryData) %in% removeVariables)]
 ```
+
 ### Cleaning the data sets - Parts 2
 In addition to the columns that we won't need, there exist columns which need some transformation.  Notably Age and DistanceFromHome.  These are currently continuous variables but will do better as ordinal variables using groups.  Additionally, I'll partition MonthlyIncome into categorical groups defined as AnnualIncome with breaks from < 40k (3333.33), 40K (3333.33) >= 70k (5833.33), 70k (5833.33) >= 100K (8333.33), and > 100k (8333.33)
 
@@ -100,11 +110,16 @@ attritionData$AnnualIncome <- with(attritionData, ifelse(MonthlyIncome < 3333.33
 head(trainData)
 #trainData[, c(2,3,4,7,9,12,14,17,26,27,28)] <- lapply(trainData[, c(2,3,4,7,9,12,14,17,26,27,28)], factor)
 trainData <- trainData %>% mutate(across(where(is.character), as.factor))
+attritionData <- attritionData %>% mutate(across(where(is.character), as.factor))
+salaryData <- salaryData %>% mutate(across(where(is.character), as.factor))
+
 ```
+
 ### Review what we've done so far
 ```{r, Review}
 head(trainData)
 ```
+
 ### Analysis of correlation seen among variables in the data
 I'll look now at a correlation matrix to determine where correlation exists between variables in the data set.
 ```{r, Correlation Check}
@@ -113,6 +128,7 @@ corrData <- cor(trainData[,sapply(trainData, is.numeric)])
 corrplot(corrData, type="upper", order="hclust",
          col=brewer.pal(n=8, name="RdYlBu"))
 ```
+
 ### Exploring those who left and those who didn't
 I've seen the correlation data but what can I tell by looking at the mean values by whether or not an employee left Frito Lay?
 ```{r, Visualize the Data, warning=FALSE}
@@ -125,6 +141,8 @@ I'd like to know how many employees exist in each age group among the training d
 ```{r Age Groups}
 table(trainData$AgeGroup) %>% kable() %>% kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
 ```
+
+The ages appear to be normally distributed across the typical working ages.
 
 ### Prepare to make predictions by removing highly correlated data points
 Looking back to the correlation data, there are some points which feature high correlation and likely contribute to the data in the same way.  Some of these aren't surprising.  Take Performance Rating and Percent Salary Hike.  It seems logical to expect those with higher performance rating to earn the highest salary increases.  Also Total Working Years and Job Level.  You expect someone who has worked for a number of years to have a higher job role.  
@@ -244,7 +262,7 @@ I'll try using a random forest model to improve on the ability to predict attrit
 
 ```{r, Random Forest Model}
 set.seed(1234)
-rfModel <- train(Attrition~., data=trainSet, method="rf", trControl=trainControl(method="cv", number=5), importance=TRUE)
+rfModel <- train(Attrition~., data=trainSet, method="rf", metric="accuracy", trControl=trainControl(method="cv", number=5), tuneGrid=expand.grid(.mtry = c(1: 10)),nodesize=14, ntree=300, importance=TRUE)
 
 #predict with test
 testSet$rfPrediction <- predict(rfModel, testSet)
@@ -254,7 +272,120 @@ rfMatrix <- table(reference = testSet$Attrition, data = testSet$rfPrediction)
 cm <- confusionMatrix(rfMatrix)
 #cm
 draw_confusion_matrix(cm)
-
+rfImportance <- varImp(rfModel)
+head(rfImportance$importance, n=10)
 ```
-### Analyze results of Naive Bayes Model
 
+### Analyze results of Random Forest Model
+Using the random forest model, I am able to achieve a sensitivity of 86.3% and a specificity of 100% on the test data set, above the 60%/60% marker you specified. This improved upon the results of the naive bayes model from earlier and will be the model I propose you adopt for predicting attrition among your employees.
+
+In analyzing which features contributed the most to an employee's decision to stay or leave, the top 10 were Age, Business Travel for those who traveled both frequently and rarely, Department for those in R&D and Sales, Distance from home that an employee lived, and the field of education which the employee had, including Life Sciences, Marketing, and Medical.
+
+
+## Regression - Predicting salary of an employee
+
+### Linear Regression Model
+
+To begin with, I'll use a linear regression model and evaluate the features variance inflation factor to determine if any features should be eliminated from the dataset.
+
+``` {r, Linear Regression of Salary}
+lmModel <- lm(MonthlyIncome~., trainSet)
+summary(lmModel)
+VIF(lmModel)
+```
+
+A number of features show to be problematic, with a VIF over 5.  some are extraordinarily over a value of 5, such as JobRole at 634.23.  This would indicate that the linear model is having trouble estimating the coefficient for that variable.
+
+Others that may be problematic would be Department, Distance From Home, Age Group, and Work Distance.  The last two were categorical variables created for the attrition prediction and will be removed.
+
+In addition, it seems to fit a logic test that distance from home would not influence the salary of an employee.  Department could influence the salary but maybe not heavily across different departments, but more so within a department based on another feature.  I believe it will be best to remove it from consideration here.
+
+Age does show a higher than 10 VIF, however, I do believe that Age will be a valuable feature in predicting salary, so I will leave it for now.
+
+There are other factors which I am not comfortable leaving in the dataset are Attrition, as whether an employee left could imply their satisfaction with their salary but doesn't indicate they're salary properly.
+
+``` {r, Prep data for Linear Model}
+removeVariables <- c("JobRole", "Department", "DistanceFromHome", "AgeGroup", "WorkDistance", "Attrition")
+trainSetLM2 <- trainSet[,!(names(trainSet) %in% removeVariables)] 
+testSetLM2 <- testSet[,!(names(testSet) %in% removeVariables)] 
+```
+
+### Rerun the regression analysis of the linear model
+
+``` {r, Linear Regression of Salary Run 2}
+lmModel <- lm(MonthlyIncome~., trainSetLM2)
+summary(lmModel)
+VIF(lmModel)
+```
+
+The Linear Regression resulted in an RMSE of $1379 and an adjusted R Squared of 0.9064.
+
+### Can another model improve on the results seen with Linear Regression
+
+I will begin using the full dataset containing all of the predictors that were eliminated in the Linear Regression modeling.
+```{r, Model built using Cubist Package in r}
+set.seed(1234)
+cubistModel <- cubist(x= trainSet[, !(names(trainSet) %in% c("MonthlyIncome"))], y=trainSet$MonthlyIncome, committees = 5)
+cubistModel
+summary(cubistModel)
+modelPrediction <- predict(cubistModel, testSet[, !(names(testSet) %in% c("MonthlyIncome"))])
+#RMSE
+cubistRMSE <- sqrt(mean((modelPrediction - testSet$MonthlyIncome)^2))
+cubistRMSE
+cubistR2 <- cor(modelPrediction, testSet$MonthlyIncome)^2
+cubistR2
+```
+
+### Evaluating Cubist Model
+
+With an RMSE of $1296 and an R^2 of 0.9295, there is improvement in the model over the linear regression.  Now I'll attempt to tune for better predictors to see if I can improve it more.
+
+```{r, Check Cubist Model}
+varImp(cubistModel)
+```
+
+### Applying the results from the evaluation of the model
+
+Now I will try to apply model tuning using the caret package to use a 10 fold cross validation over the parameters Committees and Neighbors.
+
+``` {r, 10 Fold CV Cubist Tuning}
+grid <- expand.grid(committees = c(10, 15, 20, 25, 30, 35, 40, 45, 50), neighbors = c(0, 1, 3, 5))
+set.seed(1234)
+caretGrid <- train(x= trainSet[, !(names(trainSet) %in% c("MonthlyIncome"))], y=trainSet$MonthlyIncome, method="cubist", tuneGrid=grid, trControl = trainControl(method="cv"))
+caretGrid
+ggplot(caretGrid)
+```
+
+### Best model from Cubist tuning
+
+Using the CARET package to tune the model with a set of committee and neighbor selections, I was able to find a best fit with 15 committees and no neighbors.  In that best fit instance, I was able to achieve an RMSE of 1024.255 and an R Squared of 0.9473.
+
+I'll now run this best fit model against the test data to confirm like results.
+
+```{r, Run the best fit model against the test}
+modelPrediction <- predict(caretGrid, testSet[, !(names(testSet) %in% c("MonthlyIncome"))])
+#RMSE
+cubistRMSE <- sqrt(mean((modelPrediction - testSet$MonthlyIncome)^2))
+cubistRMSE
+cubistR2 <- cor(modelPrediction, testSet$MonthlyIncome)^2
+cubistR2
+```
+
+### Analyzing the results of running against the test sample
+
+I was able to achieve results of an RMSE of 1197.722 and an R^2 of 0.9396, which shows that the model is slightly over fit to the training data set but does still return better results than simply a linear regression model.
+
+### Generating result sets on the Attrition and Salary missing data sets
+
+I'll now generate the predicted values from the data sets with the missing data so to allow you to validate my models and methodologies, using my highest performing models.
+
+``` {r, Generate predicted values to missing data sets}
+attritionData$PredictedValue <- predict(rfModel, attritionData)
+salaryData$PredictedValue <- predict(caretGrid, salaryData)
+
+attritionExport <- attritionData %>% select(c("ID", "PredictedValue"))
+write.csv(attritionExport, "Case2PredictionsMcDonald Attrition.csv")
+
+salaryExport <- salaryData %>% select(c("ID", "PredictedValue"))
+write.csv(salaryExport, "Case2PredictionsMcDonald Salary.csv")
+```
