@@ -75,6 +75,14 @@ as.data.frame(lapply(attritionData, class)) %>% t() %>% kable() %>% kable_stylin
 as.data.frame(lapply(salaryData, class)) %>% t() %>% kable() %>% kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
 ```
 
+### Determining levels in some features
+I'd like to better understand the levels and distribution of a few features in the data.
+```{r Level Distributrion of Certain Features}
+table(trainData$StandardHours) %>% kable() %>% kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+table(trainData$EmployeeCount) %>% kable() %>% kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+table(trainData$Over18) %>% kable() %>% kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
 ### Cleaning the data sets
 There exists some columns which do not appear to contain data that will be useful going forward.  This could be due to the column not containing data that can be grouped into identifiable levels, such as ID, StandardHours, Employee Count, Over18, and EmployeeNumber.  There are also a number of columns that appear to be pay rates, but do not appear to make sense or show consistency in relation to other columns that show, presumedly, like data.  These are HourlyRate, DailyRate, and MonthlyRate.  These rate data columns do not currently exist in the Salary Data set provided.
 
@@ -134,6 +142,14 @@ I've seen the correlation data but what can I tell by looking at the mean values
 ```{r, Visualize the Data, warning=FALSE}
 aggregate(trainData,by = list(trainData$Attrition),FUN = mean, na.rm=TRUE)  %>% kable() %>% kable_styling(bootstrap_options = "striped", full_width = F, position = "left") %>% scroll_box(height = 100, width = 800)
 ```
+
+### Looking at the monthly income of those who left vs those who stayed
+Is there anything remarkable about the income of those who left vs those who stayed?
+
+``` {r, Comparing Income vs Attrition}
+ggplot(data=trainData, aes(y=MonthlyIncome, x=Attrition, fill=Attrition)) + geom_boxplot() + labs(title="Plot of Monthly Income Vs. Attrition",x="Attrition", y = "Monthly Income") + scale_fill_manual(values=c("#CC1525", "#FBBD16"))
+```
+
 I see that the average age of an employee that left is about 4 years higher than one who did not leave during this period.  A leaving employee typically was higher paid, lived closer, had a higher education, and had longer experience in their role, with their current manager, and in the company.  That is all interesting but I'll need to test a few things to get a better idea of what is causing an employee to leave Frito Lay.  
 
 ### Determining splits by age group
