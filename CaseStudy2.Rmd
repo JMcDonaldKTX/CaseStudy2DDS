@@ -4,6 +4,7 @@ author: "Jason Mcdonald"
 date: "2/10/2022"
 output: html_document
 ---
+[View the presentation video here](https://youtu.be/Ah3t4DHafc4)
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
