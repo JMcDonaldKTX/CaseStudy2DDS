@@ -12,3 +12,4 @@ CaseStudy2PredictionsMcDonald Attrition.csv
 CaseStudy2PredictionsMcDonald Salary.csv
 ### Knit RMD and Youtube Link Hosted on Github.io page
 [View Jason McDonald's Github.IO Page](https://jmcdonaldktx.github.io/)
+Click on the tab for Case Study 2 - Frito Lay Attrition and Salary
